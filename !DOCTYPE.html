@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phaser 2D 響應式跑酷遊戲</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+    <style>
+        /* 確保遊戲畫布置中且沒有預設邊界 */
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background-color: #2c3e50; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+        }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script>
+        /**
+         * Phaser 配置物件 (Phaser.Game Config)
+         * 負責初始化遊戲的畫布大小、渲染模式、物理引擎與場景設定
+         */
+        const config = {
+            type: Phaser.AUTO, // 自動偵測瀏覽器支援 WebGL 或 Canvas
+            width: 800,
+            height: 600,
+            scale: {
+                // 響應式設定：自動縮放以適應螢幕，保持比例並置中
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            },
+            physics: {
+                // Phaser 的核心 2D 物理引擎：Arcade Physics
+                default: 'arcade', 
+                arcade: {
+                    gravity: { y: 1200 }, // 設定 Y 軸的向下重力
+                    debug: false          // 關閉物理碰撞框的除錯顯示
+                }
+            },
+            scene: {
+                preload: preload, // 預載入資源
+                create: create,   // 建立遊戲物件
+                update: update    // 遊戲迴圈 (每幀更新)
+            }
+        };
+
+        // 實例化遊戲物件
+        const game = new Phaser.Game(config);
+
+        // 宣告遊戲全域變數
+        let player;     // 玩家角色
+        let platforms;  // 地板/平台群組
+        let cursors;    // 鍵盤輸入物件
+        let score = 0;  // 遊戲分數
+        let scoreText;  // 分數顯示文字
+        let timer;      // 生成平台的計時器
+
+        function preload() {
+            // 在單一檔案中，為了不依賴外部圖片，我們將在 create 階段使用 Phaser 的 Graphics 生成材質
+            // 通常這裡會使用 this.load.image('key', 'path/to/image.png');
+        }
+
+        function create() {
+            /* === 1. 動態生成幾何圖形材質 === */
+            
+            // 建立背景材質 (天藍色)
+            let bgGraphics = this.add.graphics();
+            bgGraphics.fillStyle(0x87CEEB, 1);
+            bgGraphics.fillRect(0, 0, 800, 600);
+            bgGraphics.generateTexture('bg', 800, 600);
+            
+            // 建立玩家幾何體 (紅色正方形)
+            let playerGraphics = this.add.graphics();
+            playerGraphics.fillStyle(0xff3333, 1);
+            playerGraphics.fillRect(0, 0, 40, 40);
+            playerGraphics.generateTexture('playerBox', 40, 40);
+
+            // 建立平台幾何體 (綠色長方形)
+            let platformGraphics = this.add.graphics();
+            platformGraphics.fillStyle(0x2ecc71, 1);
+            platformGraphics.fillRect(0, 0, 250, 32);
+            platformGraphics.generateTexture('platformTexture', 250, 32);
+
+            /* === 2. 佈置場景 === */
+            this.add.image(400, 300, 'bg'); // 放置背景圖片
+
+            /* === 3. 建立物理平台群組 === */
+            // this.physics.add.group: 建立一個共享物理屬性的群組
+            platforms = this.physics.add.group({
+                allowGravity: false, // 平台不受重力影響
+                immovable: true      // 平台被撞擊時不會移動
+            });
+
+            // 產生初始的起點地板
+            for (let i = 0; i < 4; i++) {
+                platforms.create(i * 250, 500, 'platformTexture');
+            }
+
+            /* === 4. 建立玩家精靈 (Sprite) === */
+            // this.physics.add.sprite: 產生一個受物理引擎控制的 2D 精靈
+            player = this.physics.add.sprite(150, 300, 'playerBox');
+            player.setBounce(0); // 碰撞反彈係數設為 0
+            player.setCollideWorldBounds(true); // 避免玩家直接跑出遊戲邊界
+
+            /* === 5. 設定碰撞偵測 === */
+            // 讓玩家與平台產生實體碰撞，才不會掉下去
+            this.physics.add.collider(player, platforms);
+
+            /* === 6. 輸入互動 (滑鼠與鍵盤) === */
+            cursors = this.input.keyboard.createCursorKeys();
+            
+            // 支援滑鼠點擊/手機觸控跳躍 (響應您提到的滑鼠互動需求)
+            this.input.on('pointerdown', function () {
+                if (player.body.touching.down) {
+                    player.setVelocityY(-700); // 給予向上的速度 (跳躍)
+                }
+            });
+
+            /* === 7. UI 文字設定 === */
+            scoreText = this.add.text(16, 16, '分數: 0', { 
+                fontSize: '32px', 
+                fill: '#fff',
+                fontFamily: 'Arial',
+                stroke: '#000',
+                strokeThickness: 4
+            });
+
+            /* === 8. 遊戲事件計時器 === */
+            // 每隔 1.2 秒產生一個新平台
+            timer = this.time.addEvent({
+                delay: 1200,
+                callback: addPlatform,
+                callbackScope: this,
+                loop: true
+            });
+        }
+
+        // 自訂函式：產生新平台
+        function addPlatform() {
+            // 隨機生成平台的 Y 軸高度 (Phaser.Math.Between 用於取得區間亂數)
+            let y = Phaser.Math.Between(350, 550);
+            
+            // 在畫面右側外建立新平台
+            let platform = platforms.create(850, y, 'platformTexture');
+            
+            // 設定平台向左移動，模擬跑酷時角色向前跑的視覺效果
+            platform.setVelocityX(-300); 
+        }
+
+        // 核心迴圈：每秒大約執行 60 次
+        function update() {
+            /* === 鍵盤跳躍邏輯 === */
+            if ((cursors.space.isDown || cursors.up.isDown) && player.body.touching.down) {
+                player.setVelocityY(-700);
+            }
+
+            /* === 資源回收與計分系統 === */
+            // 走訪所有平台，如果移出畫面左側就銷毀，並增加分數
+            platforms.getChildren().forEach(function(platform) {
+                if (platform.x < -150) {
+                    platform.destroy(); // 銷毀物件以釋放記憶體
+                    score += 10;
+                    scoreText.setText('分數: ' + score);
+                }
+            });
+
+            /* === 遊戲失敗判定 === */
+            // 如果玩家掉落超過畫面底部
+            if (player.y > 580) {
+                this.physics.pause(); // 暫停物理引擎
+                player.setTint(0xff0000); // 讓玩家變成深紅色
+                timer.remove(); // 停止產生新平台
+                scoreText.setText('遊戲結束! 分數: ' + score + '\n點擊滑鼠重新開始');
+                
+                // 點擊重新載入場景
+                this.input.once('pointerdown', () => {
+                    score = 0;
+                    this.scene.restart();
+                });
+            }
+        }
+    </script>
+</body>
+</html>
