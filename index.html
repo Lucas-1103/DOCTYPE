@@ -3,187 +3,277 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phaser 2D 響應式跑酷遊戲</title>
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+    <title>勇者的數學大冒險</title>
     <style>
-        /* 確保遊戲畫布置中且沒有預設邊界 */
-        body { 
-            margin: 0; 
-            padding: 0; 
-            background-color: #2c3e50; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
+        /* 基礎全域設定與響應式設計 */
+        body {
+            font-family: '微軟正黑體', 'Arial', sans-serif;
+            background-color: #fdf6e3;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
         }
-        canvas { display: block; }
+        .game-container {
+            background: #fff;
+            max-width: 600px;
+            width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            padding: 30px;
+            text-align: center;
+            border: 4px solid #8e44ad;
+        }
+        h1 {
+            color: #8e44ad;
+            margin-top: 0;
+        }
+        /* 語音控制區塊 */
+        .tts-controls {
+            background: #f1f2f6;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+        }
+        .tts-controls button {
+            background: #e67e22;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .tts-controls button:hover { background: #d35400; }
+        input[type="range"] { vertical-align: middle; }
+        
+        /* 故事文字區塊 */
+        #story-text {
+            font-size: 20px;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            min-height: 80px;
+            padding: 15px;
+            background: #e8f8f5;
+            border-radius: 10px;
+            border-left: 5px solid #1abc9c;
+            text-align: left;
+        }
+        /* 選項按鈕區塊 */
+        .choices-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .choice-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 15px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .choice-btn:hover { background: #2980b9; }
+        
+        /* 骰子特效 */
+        #dice-display {
+            font-size: 60px;
+            margin: 10px 0;
+            animation: bounce 0.5s ease;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
     </style>
 </head>
 <body>
-    <script>
-        /**
-         * Phaser 配置物件 (Phaser.Game Config)
-         * 負責初始化遊戲的畫布大小、渲染模式、物理引擎與場景設定
-         */
-        const config = {
-            type: Phaser.AUTO, // 自動偵測瀏覽器支援 WebGL 或 Canvas
-            width: 800,
-            height: 600,
-            scale: {
-                // 響應式設定：自動縮放以適應螢幕，保持比例並置中
-                mode: Phaser.Scale.FIT,
-                autoCenter: Phaser.Scale.CENTER_BOTH
-            },
-            physics: {
-                // Phaser 的核心 2D 物理引擎：Arcade Physics
-                default: 'arcade', 
-                arcade: {
-                    gravity: { y: 1200 }, // 設定 Y 軸的向下重力
-                    debug: false          // 關閉物理碰撞框的除錯顯示
-                }
-            },
-            scene: {
-                preload: preload, // 預載入資源
-                create: create,   // 建立遊戲物件
-                update: update    // 遊戲迴圈 (每幀更新)
-            }
-        };
 
-        // 實例化遊戲物件
-        const game = new Phaser.Game(config);
+<div class="game-container">
+    <h1>⚔️ 勇者的數學大冒險</h1>
+    
+    <div class="tts-controls">
+        <label for="rate">🗣️ 語速: <span id="rate-value">1.0</span></label>
+        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
+        <button id="read-btn">🔊 朗讀故事與題目</button>
+    </div>
 
-        // 宣告遊戲全域變數
-        let player;     // 玩家角色
-        let platforms;  // 地板/平台群組
-        let cursors;    // 鍵盤輸入物件
-        let score = 0;  // 遊戲分數
-        let scoreText;  // 分數顯示文字
-        let timer;      // 生成平台的計時器
+    <div id="story-text">故事載入中...</div>
+    <div id="dice-display" style="display: none;">🎲</div>
+    <div class="choices-container" id="choices-box"></div>
+</div>
 
-        function preload() {
-            // 在單一檔案中，為了不依賴外部圖片，我們將在 create 階段使用 Phaser 的 Graphics 生成材質
-            // 通常這裡會使用 this.load.image('key', 'path/to/image.png');
+<script>
+    // === Web Speech API (TTS 語音功能) ===
+    const synth = window.speechSynthesis;
+    const rateInput = document.getElementById('rate');
+    const rateValue = document.getElementById('rate-value');
+    const readBtn = document.getElementById('read-btn');
+    let currentTextToRead = "";
+
+    // 更新語速顯示
+    rateInput.addEventListener('input', () => {
+        rateValue.textContent = rateInput.value;
+    });
+
+    // 朗讀按鈕事件
+    readBtn.addEventListener('click', () => {
+        if (synth.speaking) {
+            synth.cancel(); // 如果正在唸，先停止
+        }
+        if (currentTextToRead !== "") {
+            const utterance = new SpeechSynthesisUtterance(currentTextToRead);
+            utterance.lang = 'zh-TW'; // 設定語言為繁體中文
+            utterance.rate = parseFloat(rateInput.value); // 設定語速
+            synth.speak(utterance);
+        }
+    });
+
+    // === 遊戲邏輯與節點資料 ===
+    const storyTextElement = document.getElementById('story-text');
+    const choicesBox = document.getElementById('choices-box');
+    const diceDisplay = document.getElementById('dice-display');
+
+    // 劇本資料 (使用物件儲存各個關卡)
+    const storyNodes = {
+        start: {
+            text: "歡迎來到數學王國！你是一名勇敢的騎士。國王被邪惡的『算術魔王』抓走了。你走進森林，遇到了一隻史萊姆擋住去路。史萊姆說：『我有 8 個分身，每個分身帶了 7 顆蘋果，我們總共有幾顆蘋果？』",
+            choices: [
+                { text: "56 顆", next: "level2" }, // 8 * 7 = 56
+                { text: "54 顆", next: "wrong1" },
+                { text: "42 顆", next: "wrong1" }
+            ]
+        },
+        wrong1: {
+            text: "史萊姆搖搖頭說：『答錯囉！8 乘以 7 等於 56。』史萊姆把你彈回了起點，請再試一次吧！",
+            choices: [
+                { text: "重新開始", next: "start" }
+            ]
+        },
+        level2: {
+            text: "『答對了！』史萊姆讓開了路。你繼續往前走，來到了一扇巨大的石門前。石門上的守衛精靈拿出一顆魔法骰子對你說：『勇者，請擲骰子來決定你的考驗！』",
+            isDiceLevel: true // 標記此關卡需要擲骰子
+        },
+        wrong2: {
+            text: "精靈嘆了口氣：『算錯了喔，請你重新冷靜一下再挑戰吧。』",
+            choices: [
+                { text: "重新挑戰石門", next: "level2" }
+            ]
+        },
+        level3: {
+            text: "石門轟隆隆地打開了！你來到了魔王的房間。魔王說：『想救國王嗎？我這裡有 65 顆魔法寶石，我要把它們平分裝進 8 個箱子裡。請問每個箱子可以裝幾顆？還剩下幾顆裝不進去？』",
+            choices: [
+                { text: "裝 7 顆，剩下 9 顆", next: "wrong3" },
+                { text: "裝 8 顆，剩下 1 顆", next: "victory" }, // 65 / 8 = 8...1
+                { text: "裝 8 顆，剩下 2 顆", next: "wrong3" }
+            ]
+        },
+        wrong3: {
+            text: "魔王大笑：『哈哈哈！連除法和餘數都算不好，回去重新修練吧！(提示: 8 乘以 8 是 64)』",
+            choices: [
+                { text: "重新挑戰魔王", next: "level3" }
+            ]
+        },
+        victory: {
+            text: "魔王驚訝地說：『竟然算對了！你真的是數學天才！』魔王遵守承諾放了國王，你成為了數學王國的超級英雄！恭喜破關！",
+            choices: [
+                { text: "再玩一次", next: "start" }
+            ]
+        }
+    };
+
+    // 渲染遊戲節點
+    function renderNode(nodeId) {
+        synth.cancel(); // 切換畫面時停止前一次的語音
+        diceDisplay.style.display = 'none'; // 隱藏骰子
+        choicesBox.innerHTML = ''; // 清空按鈕
+
+        const node = storyNodes[nodeId];
+        
+        // 處理特殊骰子關卡
+        if (node.isDiceLevel) {
+            currentTextToRead = node.text;
+            storyTextElement.innerHTML = node.text;
+            
+            const rollBtn = document.createElement('button');
+            rollBtn.className = 'choice-btn';
+            rollBtn.innerText = "🎲 點擊擲骰子";
+            rollBtn.onclick = () => handleDiceRoll();
+            choicesBox.appendChild(rollBtn);
+            return;
         }
 
-        function create() {
-            /* === 1. 動態生成幾何圖形材質 === */
-            
-            // 建立背景材質 (天藍色)
-            let bgGraphics = this.add.graphics();
-            bgGraphics.fillStyle(0x87CEEB, 1);
-            bgGraphics.fillRect(0, 0, 800, 600);
-            bgGraphics.generateTexture('bg', 800, 600);
-            
-            // 建立玩家幾何體 (紅色正方形)
-            let playerGraphics = this.add.graphics();
-            playerGraphics.fillStyle(0xff3333, 1);
-            playerGraphics.fillRect(0, 0, 40, 40);
-            playerGraphics.generateTexture('playerBox', 40, 40);
+        // 一般關卡
+        currentTextToRead = node.text;
+        storyTextElement.innerHTML = node.text;
 
-            // 建立平台幾何體 (綠色長方形)
-            let platformGraphics = this.add.graphics();
-            platformGraphics.fillStyle(0x2ecc71, 1);
-            platformGraphics.fillRect(0, 0, 250, 32);
-            platformGraphics.generateTexture('platformTexture', 250, 32);
+        node.choices.forEach(choice => {
+            const btn = document.createElement('button');
+            btn.className = 'choice-btn';
+            btn.innerText = choice.text;
+            btn.onclick = () => renderNode(choice.next);
+            choicesBox.appendChild(btn);
+        });
+    }
 
-            /* === 2. 佈置場景 === */
-            this.add.image(400, 300, 'bg'); // 放置背景圖片
+    // 處理擲骰子與動態生成題目的邏輯
+    function handleDiceRoll() {
+        choicesBox.innerHTML = ''; // 清空擲骰子按鈕
+        diceDisplay.style.display = 'block';
+        
+        // 產生 1~6 的亂數
+        const diceValue = Math.floor(Math.random() * 6) + 1;
+        
+        // 骰子點數對應的 Unicode 符號 ⚀⚁⚂⚃⚄⚅
+        const diceFaces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+        diceDisplay.innerText = diceFaces[diceValue - 1];
 
-            /* === 3. 建立物理平台群組 === */
-            // this.physics.add.group: 建立一個共享物理屬性的群組
-            platforms = this.physics.add.group({
-                allowGravity: false, // 平台不受重力影響
-                immovable: true      // 平台被撞擊時不會移動
-            });
+        // 動態生成數學題 (三年級乘法：大數字乘法)
+        const multiplier = 15;
+        const correctAnswer = diceValue * multiplier;
+        const dynamicText = `你擲出了 ${diceValue} 點！精靈說：『請算出 ${diceValue} 乘以 ${multiplier} 等於多少？』`;
+        
+        currentTextToRead = dynamicText;
+        storyTextElement.innerHTML = dynamicText;
 
-            // 產生初始的起點地板
-            for (let i = 0; i < 4; i++) {
-                platforms.create(i * 250, 500, 'platformTexture');
-            }
+        // 建立選項 (一個正確，兩個隨機錯誤)
+        let options = [
+            { text: `${correctAnswer}`, next: "level3" },
+            { text: `${correctAnswer + 10}`, next: "wrong2" },
+            { text: `${correctAnswer - 5 > 0 ? correctAnswer - 5 : correctAnswer + 5}`, next: "wrong2" }
+        ];
 
-            /* === 4. 建立玩家精靈 (Sprite) === */
-            // this.physics.add.sprite: 產生一個受物理引擎控制的 2D 精靈
-            player = this.physics.add.sprite(150, 300, 'playerBox');
-            player.setBounce(0); // 碰撞反彈係數設為 0
-            player.setCollideWorldBounds(true); // 避免玩家直接跑出遊戲邊界
-
-            /* === 5. 設定碰撞偵測 === */
-            // 讓玩家與平台產生實體碰撞，才不會掉下去
-            this.physics.add.collider(player, platforms);
-
-            /* === 6. 輸入互動 (滑鼠與鍵盤) === */
-            cursors = this.input.keyboard.createCursorKeys();
-            
-            // 支援滑鼠點擊/手機觸控跳躍 (響應您提到的滑鼠互動需求)
-            this.input.on('pointerdown', function () {
-                if (player.body.touching.down) {
-                    player.setVelocityY(-700); // 給予向上的速度 (跳躍)
-                }
-            });
-
-            /* === 7. UI 文字設定 === */
-            scoreText = this.add.text(16, 16, '分數: 0', { 
-                fontSize: '32px', 
-                fill: '#fff',
-                fontFamily: 'Arial',
-                stroke: '#000',
-                strokeThickness: 4
-            });
-
-            /* === 8. 遊戲事件計時器 === */
-            // 每隔 1.2 秒產生一個新平台
-            timer = this.time.addEvent({
-                delay: 1200,
-                callback: addPlatform,
-                callbackScope: this,
-                loop: true
-            });
+        // 打亂選項順序 (Fisher-Yates Shuffle)
+        for (let i = options.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [options[i], options[j]] = [options[j], options[i]];
         }
 
-        // 自訂函式：產生新平台
-        function addPlatform() {
-            // 隨機生成平台的 Y 軸高度 (Phaser.Math.Between 用於取得區間亂數)
-            let y = Phaser.Math.Between(350, 550);
-            
-            // 在畫面右側外建立新平台
-            let platform = platforms.create(850, y, 'platformTexture');
-            
-            // 設定平台向左移動，模擬跑酷時角色向前跑的視覺效果
-            platform.setVelocityX(-300); 
-        }
+        // 渲染動態選項
+        options.forEach(choice => {
+            const btn = document.createElement('button');
+            btn.className = 'choice-btn';
+            btn.innerText = choice.text;
+            btn.onclick = () => renderNode(choice.next);
+            choicesBox.appendChild(btn);
+        });
+    }
 
-        // 核心迴圈：每秒大約執行 60 次
-        function update() {
-            /* === 鍵盤跳躍邏輯 === */
-            if ((cursors.space.isDown || cursors.up.isDown) && player.body.touching.down) {
-                player.setVelocityY(-700);
-            }
+    // 遊戲初始化
+    renderNode('start');
 
-            /* === 資源回收與計分系統 === */
-            // 走訪所有平台，如果移出畫面左側就銷毀，並增加分數
-            platforms.getChildren().forEach(function(platform) {
-                if (platform.x < -150) {
-                    platform.destroy(); // 銷毀物件以釋放記憶體
-                    score += 10;
-                    scoreText.setText('分數: ' + score);
-                }
-            });
-
-            /* === 遊戲失敗判定 === */
-            // 如果玩家掉落超過畫面底部
-            if (player.y > 580) {
-                this.physics.pause(); // 暫停物理引擎
-                player.setTint(0xff0000); // 讓玩家變成深紅色
-                timer.remove(); // 停止產生新平台
-                scoreText.setText('遊戲結束! 分數: ' + score + '\n點擊滑鼠重新開始');
-                
-                // 點擊重新載入場景
-                this.input.once('pointerdown', () => {
-                    score = 0;
-                    this.scene.restart();
-                });
-            }
-        }
-    </script>
+</script>
 </body>
 </html>
